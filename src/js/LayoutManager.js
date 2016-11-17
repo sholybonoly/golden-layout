@@ -24,6 +24,7 @@ lm.LayoutManager = function( config, container ) {
 	this._components = { 'lm-react-component': lm.utils.ReactComponentHandler };
 	this._itemAreas = [];
 	this._resizeFunction = lm.utils.fnBind( this._onResize, this );
+	this._unloadFunction = lm.utils.fnBind( this._onUnload, this );
 	this._maximisedItem = null;
 	this._maximisePlaceholder = $( '<div class="lm_maximise_place"></div>' );
 	this._creationTimeoutPassed = false;
@@ -46,8 +47,6 @@ lm.LayoutManager = function( config, container ) {
 		$( 'body' ).css( 'visibility', 'hidden' );
 	}
 
-	$( window ).on( 'unload beforeunload', lm.utils.fnBind( this._onUnload, this) );
-
 	this._typeToItem = {
 		'column': lm.utils.fnBind( lm.items.RowOrColumn, this, [ true ] ),
 		'row': lm.utils.fnBind( lm.items.RowOrColumn, this, [ false ] ),
@@ -63,7 +62,7 @@ lm.LayoutManager.__lm = lm;
 
 /**
  * Takes a GoldenLayout configuration object and
- * replaces its keys and values recoursively with
+ * replaces its keys and values recursively with
  * one letter codes
  *
  * @static
@@ -210,7 +209,7 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 
 	/**
 	 * Creates the actual layout. Must be called after all initial components
-	 * are registered. Recourses through the configuration and sets up
+	 * are registered. Recurses through the configuration and sets up
 	 * the item tree.
 	 *
 	 * If called before the document is ready it adds itself as a listener
@@ -308,15 +307,17 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 		}
 		this._onUnload();
 		$( window ).off( 'resize', this._resizeFunction );
+		$( window ).off( 'unload beforeunload', this._unloadFunction );
 		this.root.callDownwards( '_$destroy', [], true );
 		this.root.contentItems = [];
 		this.tabDropPlaceholder.remove();
 		this.dropTargetIndicator.destroy();
 		this.transitionIndicator.destroy();
+		this.eventHub.destroy();
 	},
 
 	/**
-	 * Recoursively creates new item tree structures based on a provided
+	 * Recursively creates new item tree structures based on a provided
 	 * ItemConfiguration object
 	 *
 	 * @public
@@ -346,7 +347,7 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 
 
 		/**
-		 * We add an additional stack around every component that's not within a stack anyways
+		 * We add an additional stack around every component that's not within a stack anyways.
 		 */
 		if(
 			// If this is a component
@@ -363,7 +364,6 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 		) {
 			config = {
 				type: 'stack',
-				isClosable: config.isClosable,
 				width: config.width,
 				height: config.height,
 				content: [ config ]
@@ -476,7 +476,7 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 	 * by 'dragging' the DOM element into the layout
 	 *
 	 * @param   {jQuery DOM element} element
-	 * @param   {Object} itemConfig for the new item to be created
+	 * @param   {Object|Function} itemConfig for the new item to be created, or a function which will provide it
 	 *
 	 * @returns {void}
 	 */
@@ -626,11 +626,12 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 
 	/**
 	 * Takes a contentItem or a configuration and optionally a parent
-	 * item and returns an initialised instance of the contentItem
+	 * item and returns an initialised instance of the contentItem.
+	 * If the contentItem is a function, it is first called
 	 *
 	 * @packagePrivate
 	 *
-	 * @param   {lm.items.AbtractContentItem|Object} contentItemOrConfig
+	 * @param   {lm.items.AbtractContentItem|Object|Function} contentItemOrConfig
 	 * @param   {lm.items.AbtractContentItem} parent Only necessary when passing in config
 	 *
 	 * @returns {lm.items.AbtractContentItem}
@@ -638,6 +639,10 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 	_$normalizeContentItem: function( contentItemOrConfig, parent ) {
 		if( !contentItemOrConfig ) {
 			throw new Error( 'No content item defined' );
+		}
+
+		if( lm.utils.isFunction( contentItemOrConfig ) ) {
+			contentItemOrConfig = contentItemOrConfig();
 		}
 
 		if( contentItemOrConfig instanceof lm.items.AbstractContentItem ) {
@@ -720,6 +725,7 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 		if( this._isFullPage ) {
 			$(window).resize( this._resizeFunction );
 		}
+		$(window).on( 'unload beforeunload', this._unloadFunction );
 	},
 
 	/**
@@ -872,7 +878,7 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 	},
 
 	/**
-	 * Kicks of the initial, recoursive creation chain
+	 * Kicks of the initial, recursive creation chain
 	 *
 	 * @param   {Object} config GoldenLayout Config
 	 *

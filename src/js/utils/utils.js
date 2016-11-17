@@ -29,8 +29,15 @@ lm.utils.objectKeys = function( object ) {
 	}
 };
 
+lm.utils.getHashValue = function( key ) {
+	var matches = location.hash.match( new RegExp( key + '=([^&]*)' ) );
+	return matches ? matches[ 1 ] : null;
+};
+
 lm.utils.getQueryStringParam = function( param ) {
-	if( !window.location.search ) {
+	if( window.location.hash ) {
+		return lm.utils.getHashValue( param );
+	} else if( !window.location.search ) {
 		return null;
 	}
 
@@ -91,6 +98,16 @@ lm.utils.indexOf = function( needle, haystack ) {
 		return -1;
 	}
 };
+
+if ( typeof /./ != 'function' && typeof Int8Array != 'object' ) {
+  lm.utils.isFunction = function ( obj ) {
+    return typeof obj == 'function' || false;
+  };
+} else {
+	lm.utils.isFunction = function ( obj ) {
+		return toString.call(obj) === '[object Function]';
+	};
+}
 
 lm.utils.fnBind = function( fn, context, boundArgs ) {
 

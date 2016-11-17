@@ -1,4 +1,4 @@
-(function($){var lm={"config":{},"container":{},"errors":{},"controls":{},"items":{},"utils":{}};
+(function($){var lm={"config":{},"container":{},"controls":{},"errors":{},"items":{},"utils":{}};
 
 lm.utils.F = function () {};
 	
@@ -30,8 +30,15 @@ lm.utils.objectKeys = function( object ) {
 	}
 };
 
+lm.utils.getHashValue = function( key ) {
+	var matches = location.hash.match( new RegExp( key + '=([^&]*)' ) );
+	return matches ? matches[ 1 ] : null;
+};
+
 lm.utils.getQueryStringParam = function( param ) {
-	if( !window.location.search ) {
+	if( window.location.hash ) {
+		return lm.utils.getHashValue( param );
+	} else if( !window.location.search ) {
 		return null;
 	}
 
@@ -92,6 +99,16 @@ lm.utils.indexOf = function( needle, haystack ) {
 		return -1;
 	}
 };
+
+if ( typeof /./ != 'function' && typeof Int8Array != 'object' ) {
+  lm.utils.isFunction = function ( obj ) {
+    return typeof obj == 'function' || false;
+  };
+} else {
+	lm.utils.isFunction = function ( obj ) {
+		return toString.call(obj) === '[object Function]';
+	};
+}
 
 lm.utils.fnBind = function( fn, context, boundArgs ) {
 
@@ -200,13 +217,17 @@ lm.utils.EventEmitter = function()
 	 * Listen for events
 	 *
 	 * @param   {String} sEvent    The name of the event to listen to
-	 * @param   {Function} fCallback The callback to execute when the event occurs
+	 * @param   {Function} fCallback The callback to execute when the event occurs 
 	 * @param   {[Object]} oContext The value of the this pointer within the callback function
 	 *
 	 * @returns {void}
 	 */
 	this.on = function( sEvent, fCallback, oContext )
 	{
+		if ( !lm.utils.isFunction(fCallback) ) {
+			throw new Error( 'Tried to listen to event ' + sEvent + ' with non-function callback ' + fCallback );
+		}
+		
 		if( !this._mSubscriptions[ sEvent ] )
 		{
 			this._mSubscriptions[ sEvent ] = [];
@@ -247,11 +268,11 @@ lm.utils.EventEmitter = function()
 	};
 
 	/**
-	 * Removes a listener for an event
+	 * Removes a listener for an event, or all listeners if no callback and context is provided.
 	 *
 	 * @param   {String} sEvent    The name of the event
-	 * @param   {Function} fCallback The previously registered callback method
-	 * @param   {Object} oContext  The previously registered context
+	 * @param   {Function} fCallback The previously registered callback method (optional)
+	 * @param   {Object} oContext  The previously registered context (optional)
 	 *
 	 * @returns {void}
 	 */
@@ -267,7 +288,7 @@ lm.utils.EventEmitter = function()
 		{
 			if
 			(
-				this._mSubscriptions[ sEvent ][ i ].fn === fCallback &&
+				( !fCallback || this._mSubscriptions[ sEvent ][ i ].fn === fCallback ) &&
 				( !oContext || oContext === this._mSubscriptions[ sEvent ][ i ].ctx )
 			)
 			{
@@ -351,52 +372,58 @@ lm.utils.copy( lm.utils.DragListener.prototype, {
 	{
 		oEvent.preventDefault();
 
-		var coordinates = this._getCoordinates( oEvent );
-		
-		this._nOriginalX = coordinates.x;
-		this._nOriginalY = coordinates.y;
+		if (oEvent.button == 0) {
+			var coordinates = this._getCoordinates( oEvent );
 
-		this._oDocument.on('mousemove touchmove', this._fMove);
-		this._oDocument.one('mouseup touchend', this._fUp);
+			this._nOriginalX = coordinates.x;
+			this._nOriginalY = coordinates.y;
 
-		this._timeout = setTimeout( lm.utils.fnBind( this._startDrag, this ), this._nDelay );
+			this._oDocument.on( 'mousemove touchmove', this._fMove );
+			this._oDocument.one( 'mouseup touchend', this._fUp );
+
+			this._timeout = setTimeout( lm.utils.fnBind( this._startDrag, this ), this._nDelay );
+		}
 	},
 
 	onMouseMove: function(oEvent)
 	{
-		oEvent.preventDefault();
+		if (this._timeout != null) {
+			oEvent.preventDefault();
 
-		var coordinates = this._getCoordinates( oEvent );
+			var coordinates = this._getCoordinates(oEvent);
 
-		this._nX = coordinates.x - this._nOriginalX;
-		this._nY = coordinates.y - this._nOriginalY;
+			this._nX = coordinates.x - this._nOriginalX;
+			this._nY = coordinates.y - this._nOriginalY;
 
-		if( this._bDragging === false ) {
-			if(
-				Math.abs( this._nX ) > this._nDistance ||
-				Math.abs( this._nY ) > this._nDistance
-			){
-				clearTimeout( this._timeout );
-				this._startDrag();
+			if (this._bDragging === false) {
+				if (
+					Math.abs(this._nX) > this._nDistance ||
+					Math.abs(this._nY) > this._nDistance
+				) {
+					clearTimeout(this._timeout);
+					this._startDrag();
+				}
 			}
-		}
 
-		if( this._bDragging )
-		{
-			this.emit('drag', this._nX, this._nY, oEvent );
+			if (this._bDragging) {
+				this.emit('drag', this._nX, this._nY, oEvent);
+			}
 		}
 	},
 
 	onMouseUp: function(oEvent)
 	{
-		clearTimeout( this._timeout );
-		this._eBody.removeClass( 'lm_dragging' );
-		this._oDocument.unbind( 'mousemove touchmove', this._fMove);
-		
-		if( this._bDragging === true )
-		{
-			this._bDragging = false;
-			this.emit('dragStop', oEvent, this._nOriginalX + this._nX);
+		if(this._timeout != null) {
+			clearTimeout( this._timeout );
+			this._eBody.removeClass( 'lm_dragging' );
+			this._eElement.removeClass( 'lm_dragging' );
+			this._oDocument.find( 'iframe' ).css( 'pointer-events', '' );
+			this._oDocument.unbind( 'mousemove touchmove', this._fMove );
+
+			if( this._bDragging === true ) {
+				this._bDragging = false;
+				this.emit( 'dragStop', oEvent, this._nOriginalX + this._nX );
+			}
 		}
 	},
 
@@ -404,6 +431,8 @@ lm.utils.copy( lm.utils.DragListener.prototype, {
 	{
 		this._bDragging = true;
 		this._eBody.addClass( 'lm_dragging' );
+		this._eElement.addClass( 'lm_dragging' );
+		this._oDocument.find( 'iframe' ).css( 'pointer-events', 'none' );
 		this.emit('dragStart', this._nOriginalX, this._nOriginalY);
 	},
 
@@ -447,6 +476,7 @@ lm.LayoutManager = function( config, container ) {
 	this._components = { 'lm-react-component': lm.utils.ReactComponentHandler };
 	this._itemAreas = [];
 	this._resizeFunction = lm.utils.fnBind( this._onResize, this );
+	this._unloadFunction = lm.utils.fnBind( this._onUnload, this );
 	this._maximisedItem = null;
 	this._maximisePlaceholder = $( '<div class="lm_maximise_place"></div>' );
 	this._creationTimeoutPassed = false;
@@ -469,8 +499,6 @@ lm.LayoutManager = function( config, container ) {
 		$( 'body' ).css( 'visibility', 'hidden' );
 	}
 
-	$( window ).on( 'unload beforeunload', lm.utils.fnBind( this._onUnload, this) );
-
 	this._typeToItem = {
 		'column': lm.utils.fnBind( lm.items.RowOrColumn, this, [ true ] ),
 		'row': lm.utils.fnBind( lm.items.RowOrColumn, this, [ false ] ),
@@ -486,7 +514,7 @@ lm.LayoutManager.__lm = lm;
 
 /**
  * Takes a GoldenLayout configuration object and
- * replaces its keys and values recoursively with
+ * replaces its keys and values recursively with
  * one letter codes
  *
  * @static
@@ -633,7 +661,7 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 
 	/**
 	 * Creates the actual layout. Must be called after all initial components
-	 * are registered. Recourses through the configuration and sets up
+	 * are registered. Recurses through the configuration and sets up
 	 * the item tree.
 	 *
 	 * If called before the document is ready it adds itself as a listener
@@ -731,15 +759,17 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 		}
 		this._onUnload();
 		$( window ).off( 'resize', this._resizeFunction );
+		$( window ).off( 'unload beforeunload', this._unloadFunction );
 		this.root.callDownwards( '_$destroy', [], true );
 		this.root.contentItems = [];
 		this.tabDropPlaceholder.remove();
 		this.dropTargetIndicator.destroy();
 		this.transitionIndicator.destroy();
+		this.eventHub.destroy();
 	},
 
 	/**
-	 * Recoursively creates new item tree structures based on a provided
+	 * Recursively creates new item tree structures based on a provided
 	 * ItemConfiguration object
 	 *
 	 * @public
@@ -769,7 +799,7 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 
 
 		/**
-		 * We add an additional stack around every component that's not within a stack anyways
+		 * We add an additional stack around every component that's not within a stack anyways.
 		 */
 		if(
 			// If this is a component
@@ -786,7 +816,6 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 		) {
 			config = {
 				type: 'stack',
-				isClosable: config.isClosable,
 				width: config.width,
 				height: config.height,
 				content: [ config ]
@@ -899,7 +928,7 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 	 * by 'dragging' the DOM element into the layout
 	 *
 	 * @param   {jQuery DOM element} element
-	 * @param   {Object} itemConfig for the new item to be created
+	 * @param   {Object|Function} itemConfig for the new item to be created, or a function which will provide it
 	 *
 	 * @returns {void}
 	 */
@@ -1049,11 +1078,12 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 
 	/**
 	 * Takes a contentItem or a configuration and optionally a parent
-	 * item and returns an initialised instance of the contentItem
+	 * item and returns an initialised instance of the contentItem.
+	 * If the contentItem is a function, it is first called
 	 *
 	 * @packagePrivate
 	 *
-	 * @param   {lm.items.AbtractContentItem|Object} contentItemOrConfig
+	 * @param   {lm.items.AbtractContentItem|Object|Function} contentItemOrConfig
 	 * @param   {lm.items.AbtractContentItem} parent Only necessary when passing in config
 	 *
 	 * @returns {lm.items.AbtractContentItem}
@@ -1061,6 +1091,10 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 	_$normalizeContentItem: function( contentItemOrConfig, parent ) {
 		if( !contentItemOrConfig ) {
 			throw new Error( 'No content item defined' );
+		}
+
+		if( lm.utils.isFunction( contentItemOrConfig ) ) {
+			contentItemOrConfig = contentItemOrConfig();
 		}
 
 		if( contentItemOrConfig instanceof lm.items.AbstractContentItem ) {
@@ -1143,6 +1177,7 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 		if( this._isFullPage ) {
 			$(window).resize( this._resizeFunction );
 		}
+		$(window).on( 'unload beforeunload', this._unloadFunction );
 	},
 
 	/**
@@ -1295,7 +1330,7 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 	},
 
 	/**
-	 * Kicks of the initial, recoursive creation chain
+	 * Kicks of the initial, recursive creation chain
 	 *
 	 * @param   {Object} config GoldenLayout Config
 	 *
@@ -1356,6 +1391,11 @@ lm.utils.copy( lm.LayoutManager.prototype, {
 	}
 })();
 
+lm.config.itemDefaultConfig = {
+	isClosable: true,
+	reorderEnabled: true,
+	title: ''
+};
 lm.config.defaultConfig = {
 	openPopouts:[],
 	settings:{
@@ -1385,11 +1425,6 @@ lm.config.defaultConfig = {
 		popout: 'open in new window',
 		popin: 'pop in'
 	}
-};
-lm.config.itemDefaultConfig = {
-	isClosable: true,
-	reorderEnabled: true,
-	title: ''
 };
 lm.container.ItemContainer = function( config, parent, layoutManager ) {
 	lm.utils.EventEmitter.call( this );
@@ -1447,6 +1482,10 @@ lm.utils.copy( lm.container.ItemContainer.prototype, {
 		this.emit( 'show' );
 		this.isHidden = false;
 		this._element.show();
+		// call shown only if the container has a valid size
+		if(this.height != 0 || this.width != 0) {
+			this.emit( 'shown' );
+		}
 	},
 
 	/**
@@ -1865,6 +1904,7 @@ lm.controls.DragProxy = function( x, y, dragListener, layoutManager, contentItem
 
 	this.element = $( lm.controls.DragProxy._template );
 	this.element.css({ left: x, top: y });
+	this.element.find( '.lm_tab' ).attr( 'title', lm.utils.stripTags( this._contentItem.config.title ) );
 	this.element.find( '.lm_title' ).html( this._contentItem.config.title );
 	this.childElementContainer = this.element.find( '.lm_content' );
 	this.childElementContainer.append( contentItem.element );
@@ -1883,6 +1923,8 @@ lm.controls.DragProxy = function( x, y, dragListener, layoutManager, contentItem
 	this._maxY = this._layoutManager.container.height() + this._minY;
 	this._width = this.element.width();
 	this._height = this.element.height();
+
+	this._setDropPosition( x, y );
 };
 
 lm.controls.DragProxy._template = '<div class="lm_dragProxy">' +
@@ -1915,20 +1957,34 @@ lm.utils.copy( lm.controls.DragProxy.prototype, {
 		var x = event.pageX,
 			y = event.pageY,
 			isWithinContainer = x > this._minX && x < this._maxX && y > this._minY && y < this._maxY;
-	
+
 		if( !isWithinContainer && this._layoutManager.config.settings.constrainDragToContainer === true ) {
 			return;
 		}
-	
+
+		this._setDropPosition( x, y );
+	},
+
+	/**
+	 * Sets the target position, highlighting the appropriate area
+	 *
+	 * @param   {Number} x The x position in px
+	 * @param   {Number} y The y position in px
+	 *
+	 * @private
+	 *
+	 * @returns {void}
+	 */
+	_setDropPosition: function( x, y ) {
 		this.element.css({ left: x, top: y });
 		this._area = this._layoutManager._$getArea( x, y );
-	
+
 		if( this._area !== null ) {
 			this._lastValidArea = this._area;
 			this._area.contentItem._$highlightDropZone( x, y, this._area );
 		}
 	},
-	
+
 	/**
 	 * Callback when the drag has finished. Determines the drop area
 	 * and adds the child to it
@@ -1960,13 +2016,23 @@ lm.utils.copy( lm.controls.DragProxy.prototype, {
 		 */
 		} else if ( this._originalParent ){
 			this._originalParent.addChild( this._contentItem );
+
+		/**
+		 * The drag didn't ultimately end up with adding the content item to
+		 * any container. In order to ensure clean up happens, destroy the
+		 * content item.
+		 */
+		} else {
+			this._contentItem._$destroy();
 		}
 		
 		this.element.remove();
+
+		this._layoutManager.emit( 'itemDropped', this._contentItem );
 	},
 	
 	/**
-	 * Removes the item from it's original position within the tree
+	 * Removes the item from its original position within the tree
 	 *
 	 * @private
 	 *
@@ -2004,6 +2070,7 @@ lm.utils.copy( lm.controls.DragProxy.prototype, {
 		this._contentItem.callDownwards( 'setSize' );
 	}
 });
+
 /**
  * Allows for any DOM item to create a component on drag
  * start tobe dragged into the Layout
@@ -2049,7 +2116,11 @@ lm.utils.copy( lm.controls.DragSource.prototype, {
 	 * @returns {void}
 	 */
 	_onDragStart: function( x, y ) {
-		var contentItem = this._layoutManager._$normalizeContentItem( this._itemConfig ),
+		var itemConfig = this._itemConfig;
+		if( lm.utils.isFunction( itemConfig ) ) {
+			itemConfig = itemConfig();
+		}
+		var contentItem = this._layoutManager._$normalizeContentItem( $.extend( true, {}, itemConfig ) ),
 			dragProxy = new lm.controls.DragProxy( x, y, this._dragListener, this._layoutManager, contentItem, null );
 		
 		this._layoutManager.transitionIndicator.transitionElements( this._element, dragProxy.element );
@@ -2109,6 +2180,7 @@ lm.controls.Header = function( layoutManager, parent ) {
 	this.parent.on( 'resize', this._updateTabSizes, this );
 	this.tabs = [];
 	this.activeContentItem = null;
+	this.closeButton = null;
 
 	this._createControls();
 };
@@ -2125,8 +2197,8 @@ lm.utils.copy( lm.controls.Header.prototype, {
 	/**
 	 * Creates a new tab and associates it with a contentItem
 	 *
-	 * @param   {lm.item.AbstractContentItem} contentItem
-	 * @param   {Integer} index The position of the tab
+	 * @param	{lm.item.AbstractContentItem} contentItem
+	 * @param	{Integer} index The position of the tab
 	 *
 	 * @returns {void}
 	 */
@@ -2166,7 +2238,7 @@ lm.utils.copy( lm.controls.Header.prototype, {
 	/**
 	 * Finds a tab based on the contentItem its associated with and removes it.
 	 *
-	 * @param   {lm.item.AbstractContentItem} contentItem
+	 * @param	{lm.item.AbstractContentItem} contentItem
 	 *
 	 * @returns {void}
 	 */
@@ -2201,6 +2273,23 @@ lm.utils.copy( lm.controls.Header.prototype, {
 
 		this._updateTabSizes();
 		this.parent.emitBubblingEvent( 'stateChanged' );
+	},
+
+	/**
+	 * Programmatically set closability.
+	 *
+	 * @package private
+	 * @param {Boolean} isClosable Whether to enable/disable closability.
+	 *
+	 * @returns {Boolean} Whether the action was successful
+	 */
+	_$setClosable: function( isClosable ) {
+		if ( this.closeButton && this._isClosable() ) {
+			this.closeButton.element[ isClosable ? "show" : "hide" ]();
+			return true;
+		}
+
+		return false;
 	},
 
 	/**
@@ -2264,11 +2353,21 @@ lm.utils.copy( lm.controls.Header.prototype, {
 		/**
 		 * Close button
 		 */
-		if( this.parent.config.isClosable && this.layoutManager.config.settings.showCloseIcon ) {
+		if( this._isClosable() ) {
 			closeStack = lm.utils.fnBind( this.parent.remove, this.parent );
 			label = this.layoutManager.config.labels.close;
-			new lm.controls.HeaderButton( this, label, 'lm_close', closeStack );
+			this.closeButton = new lm.controls.HeaderButton( this, label, 'lm_close', closeStack );
 		}
+	},
+
+	/**
+	 * Checks whether the header is closable based on the parent config and 
+	 * the global config.
+	 *
+	 * @returns {Boolean} Whether the header is closable.
+	 */
+	_isClosable: function() {
+		return this.parent.config.isClosable && this.layoutManager.config.settings.showCloseIcon;
 	},
 
 	_onPopoutClick: function() {
@@ -2279,10 +2378,11 @@ lm.utils.copy( lm.controls.Header.prototype, {
 		}
 	},
 
+
 	/**
 	 * Invoked when the header's background is clicked (not it's tabs or controls)
 	 *
-	 * @param   {jQuery DOM event} event
+	 * @param	{jQuery DOM event} event
 	 *
 	 * @returns {void}
 	 */
@@ -2401,31 +2501,31 @@ lm.controls.Tab = function( header, contentItem ) {
 	this.closeElement = this.element.find( '.lm_close_tab' );
 	this.closeElement[ contentItem.config.isClosable ? 'show' : 'hide' ]();
 	this.isActive = false;
-	
+
 	this.setTitle( contentItem.config.title );
 	this.contentItem.on( 'titleChanged', this.setTitle, this );
 
 	this._layoutManager = this.contentItem.layoutManager;
 
-	if( 
+	if(
 		this._layoutManager.config.settings.reorderEnabled === true &&
 		contentItem.config.reorderEnabled === true
 	) {
 		this._dragListener = new lm.utils.DragListener( this.element );
 		this._dragListener.on( 'dragStart', this._onDragStart, this );
 	}
-	
+
 	this._onTabClickFn = lm.utils.fnBind( this._onTabClick, this );
 	this._onCloseClickFn = lm.utils.fnBind( this._onCloseClick, this );
 
 	this.element.click( this._onTabClickFn );
 
-	if( this._layoutManager.config.settings.showCloseIcon === true ) {
+	if( this.contentItem.config.isClosable ) {
 		this.closeElement.click( this._onCloseClickFn );
 	} else {
 		this.closeElement.remove();
 	}
-	
+
 	this.contentItem.tab = this;
 	this.contentItem.emit( 'tab', this );
 	this.contentItem.layoutManager.emit( 'tabCreated', this );
@@ -2449,7 +2549,7 @@ lm.utils.copy( lm.controls.Tab.prototype,{
 
 	/**
 	 * Sets the tab's title to the provided string and sets
-	 * its title attribute to a pure text representation (without 
+	 * its title attribute to a pure text representation (without
 	 * html tags) of the same string.
 	 *
 	 * @public
@@ -2461,7 +2561,7 @@ lm.utils.copy( lm.controls.Tab.prototype,{
 	},
 
 	/**
-	 * Sets this tab's active state. To programmatically 
+	 * Sets this tab's active state. To programmatically
 	 * switch tabs, use header.setActiveContentItem( item ) instead.
 	 *
 	 * @public
@@ -2489,6 +2589,10 @@ lm.utils.copy( lm.controls.Tab.prototype,{
 	_$destroy: function() {
 		this.element.off( 'click', this._onTabClickFn );
 		this.closeElement.off( 'click', this._onCloseClickFn );
+		if( this._dragListener ) {
+			this._dragListener.off( 'dragStart', this._onDragStart );
+			this._dragListener = null;
+		}
 		this.element.remove();
 	},
 
@@ -2519,14 +2623,17 @@ lm.utils.copy( lm.controls.Tab.prototype,{
 	 * Callback when the tab is clicked
 	 *
 	 * @param {jQuery DOM event} event
-	 * 
+	 *
 	 * @private
 	 * @returns {void}
 	 */
 	_onTabClick: function( event ) {
 		// left mouse button
 		if( event.button === 0 ) {
-			this.header.parent.setActiveContentItem( this.contentItem );
+			var activeContentItem = this.header.parent.getActiveContentItem();
+			if (this.contentItem !== activeContentItem) {
+				this.header.parent.setActiveContentItem( this.contentItem );
+			}
 
 		// middle mouse button
 		} else if( event.button === 1 && this.contentItem.config.isClosable ) {
@@ -2673,7 +2780,7 @@ lm.items.AbstractContentItem = function( layoutManager, config, parent ) {
 lm.utils.copy( lm.items.AbstractContentItem.prototype, {
 	
 	/**
-	 * Set the size of the component and its children, called recoursively
+	 * Set the size of the component and its children, called recursively
 	 *
 	 * @abstract
 	 * @returns void
@@ -2683,7 +2790,7 @@ lm.utils.copy( lm.items.AbstractContentItem.prototype, {
 	},
 
 	/**
-	 * Calls a method recoursively downwards on the tree
+	 * Calls a method recursively downwards on the tree
 	 *
 	 * @param   {String} functionName      the name of the function to be called
 	 * @param   {[Array]}functionArguments optional arguments that are passed to every function
@@ -2820,6 +2927,13 @@ lm.utils.copy( lm.items.AbstractContentItem.prototype, {
 		 */
 		this.contentItems[ index ] = newChild;
 		newChild.parent = this;
+
+		/*
+		 * Update tab reference
+		 */
+		if ( this.isStack ) {
+			this.header.tabs[ index ].contentItem = newChild;
+		}
 
 		//TODO This doesn't update the config... refactor to leave item nodes untouched after creation
 		if( newChild.parent.isInitialised === true && newChild.isInitialised === false ) {
@@ -3045,6 +3159,7 @@ lm.utils.copy( lm.items.AbstractContentItem.prototype, {
 		this._callOnActiveComponents( 'show' );
 		this.element.show();
 		this.layoutManager.updateSize();
+		this._callOnActiveComponents( 'shown' );
 	},
 
 	_callOnActiveComponents: function( methodName ) {
@@ -3103,7 +3218,7 @@ lm.utils.copy( lm.items.AbstractContentItem.prototype, {
 
 	/**
 	 * The tree of content items is created in two steps: First all content items are instantiated,
-	 * then init is called recoursively from top to bottem. This is the basic init function,
+	 * then init is called recursively from top to bottem. This is the basic init function,
 	 * it can be used, extended or overwritten by the content items
 	 * 
 	 * Its behaviour depends on the content item
@@ -3289,6 +3404,11 @@ lm.utils.copy( lm.items.Component.prototype, {
 	_$show: function() {
 		this.container.show();
 		lm.items.AbstractContentItem.prototype._$show.call( this );
+	},
+	
+	_$shown: function() {
+		this.container.shown();
+		lm.items.AbstractContentItem.prototype._$shown.call( this );
 	},
 
 	_$destroy: function() {
@@ -3521,7 +3641,7 @@ lm.utils.copy( lm.items.RowOrColumn.prototype, {
 	},
 	
 	/**
-	 * Invoked recoursively by the layout manager. AbstractContentItem.init appends
+	 * Invoked recursively by the layout manager. AbstractContentItem.init appends
 	 * the contentItem's DOM elements to the container, RowOrColumn init adds splitters
 	 * in between them
 	 *
@@ -3577,7 +3697,7 @@ lm.utils.copy( lm.items.RowOrColumn.prototype, {
 			itemSizes.push( itemSize );
 		}
 
-		additionalPixel = ( this._isColumn ? totalHeight : totalWidth ) - totalAssigned;
+		additionalPixel = Math.floor( ( this._isColumn ? totalHeight : totalWidth ) - totalAssigned );
 
 		for( i = 0; i < this.contentItems.length; i++ ) {
 			if( additionalPixel - i > 0 ) {
@@ -3706,6 +3826,22 @@ lm.utils.copy( lm.items.RowOrColumn.prototype, {
 			after: this.contentItems[ index + 1 ]
 		};
 	},
+
+	/**
+	 * Gets the minimum dimensions for the given item configuration array
+	 * @param item
+	 * @private
+	 */
+	_getMinimumDimensions: function (arr) {
+		var minWidth = 0, minHeight = 0;
+
+		for (var i = 0; i < arr.length; ++i) {
+			minWidth = Math.max(arr[i].minWidth || 0, minWidth);
+			minHeight = Math.max(arr[i].minHeight || 0, minHeight);
+		}
+
+		return { horizontal: minWidth, vertical: minHeight };
+	},
 	
 	/**
 	 * Invoked when a splitter's dragListener fires dragStart. Calculates the splitters
@@ -3718,10 +3854,16 @@ lm.utils.copy( lm.items.RowOrColumn.prototype, {
 	_onSplitterDragStart: function( splitter ) {
 		var items = this._getItemsForSplitter( splitter ),
 			minSize = this.layoutManager.config.dimensions[ this._isColumn ? 'minItemHeight' : 'minItemWidth' ];
-	
+
+		var beforeMinDim = this._getMinimumDimensions(items.before.config.content);
+		var beforeMinSize = this._isColumn ? beforeMinDim.vertical : beforeMinDim.horizontal;
+
+		var afterMinDim = this._getMinimumDimensions(items.after.config.content);
+		var afterMinSize = this._isColumn ? afterMinDim.vertical : afterMinDim.horizontal;
+
 		this._splitterPosition = 0;
-		this._splitterMinPosition = -1 * ( items.before.element[ this._dimension ]() - minSize );
-		this._splitterMaxPosition = items.after.element[ this._dimension ]() - minSize;
+		this._splitterMinPosition = -1 * ( items.before.element[ this._dimension ]() - (beforeMinSize || minSize) );
+		this._splitterMaxPosition = items.after.element[ this._dimension ]() - (afterMinSize || minSize);
 	},
 	
 	/**
@@ -3792,6 +3934,7 @@ lm.items.Stack = function( layoutManager, config, parent ) {
 	}
 
 	this.element.append( this.childElementContainer );
+	this._$validateClosability();
 };
 
 lm.utils.extend( lm.items.Stack, lm.items.AbstractContentItem );
@@ -3863,6 +4006,7 @@ lm.utils.copy( lm.items.Stack.prototype, {
 		this.header.createTab( contentItem, index );
 		this.setActiveContentItem( contentItem );
 		this.callDownwards( 'setSize' );
+		this._$validateClosability();
 		this.emitBubblingEvent( 'stateChanged' );
 	},
 
@@ -3877,7 +4021,34 @@ lm.utils.copy( lm.items.Stack.prototype, {
 			this._activeContentItem = null;
 		}
 		
+		this._$validateClosability();
 		this.emitBubblingEvent( 'stateChanged' );
+	},
+
+	/**
+	 * Validates that the stack is still closable or not. If a stack is able
+	 * to close, but has a non closable component added to it, the stack is no
+	 * longer closable until all components are closable.
+	 *
+	 * @returns {void}
+	 */
+	_$validateClosability: function() {
+		var contentItem,
+			isClosable,
+			len,
+			i;
+
+		isClosable = this.header._isClosable();
+
+		for ( i = 0, len = this.contentItems.length; i < len; i++ ) {
+			if (!isClosable) { 
+				break; 
+			}
+
+			isClosable = this.contentItems[ i ].config.isClosable;
+		}
+
+		this.header._$setClosable( isClosable );
 	},
 
 	_$destroy: function() {
@@ -3903,7 +4074,7 @@ lm.utils.copy( lm.items.Stack.prototype, {
 	 * Same thing for rows and left / right drop segments... so in total there are 9 things that can potentially happen
 	 * (left, top, right, bottom) * is child of the right parent (row, column) + header drop
 	 * 
-	 * @param   {lm.item} contentItem
+	 * @param	{lm.item} contentItem
 	 *
 	 * @returns {void}
 	 */
@@ -3963,7 +4134,7 @@ lm.utils.copy( lm.items.Stack.prototype, {
 			this.parent.callDownwards( 'setSize' );
 		/*
 		 * This handles items that are dropped on top or bottom of a row or left / right of a column. We need
-		 * to create the appropriate contentItem for them to life in
+		 * to create the appropriate contentItem for them to live in
 		 */
 		} else {
 			type = isVertical ? 'column' : 'row';
@@ -3983,8 +4154,8 @@ lm.utils.copy( lm.items.Stack.prototype, {
 	 * If the user hovers above the header part of the stack, indicate drop positions for tabs.
 	 * otherwise indicate which segment of the body the dragged item would be dropped on
 	 *
-	 * @param   {Int} x Absolute Screen X
-	 * @param   {Int} y Absolute Screen Y
+	 * @param	{Int} x Absolute Screen X
+	 * @param	{Int} y Absolute Screen Y
 	 *
 	 * @returns {void}
 	 */
@@ -4280,7 +4451,7 @@ lm.utils.copy( lm.utils.ConfigMinifier.prototype, {
 
 	/**
 	 * Takes a GoldenLayout configuration object and
-	 * replaces its keys and values recoursively with
+	 * replaces its keys and values recursively with
 	 * one letter counterparts
 	 *
 	 * @param   {Object} config A GoldenLayout config object
@@ -4308,7 +4479,7 @@ lm.utils.copy( lm.utils.ConfigMinifier.prototype, {
 	},
 
 	/**
-	 * Recoursive function, called for every level of the config structure
+	 * Recursive function, called for every level of the config structure
 	 *
 	 * @param   {Array|Object} orig
 	 * @param   {Array|Object} min
@@ -4338,7 +4509,7 @@ lm.utils.copy( lm.utils.ConfigMinifier.prototype, {
 
 			/**
 			 * For Arrays and Objects, create a new Array/Object
-			 * on the minified object and recourse into it
+			 * on the minified object and recurse into it
 			 */
 			if( typeof from[ key ] === 'object' ) {
 				to[ minKey ] = from[ key ] instanceof Array ? [] : {};
@@ -4432,7 +4603,8 @@ lm.utils.EventHub = function( layoutManager ) {
 	this._dontPropagateToParent = null;
 	this._childEventSource = null;
 	this.on( lm.utils.EventEmitter.ALL_EVENT, lm.utils.fnBind( this._onEventFromThis, this ) );
-	$(window).on( 'gl_child_event', lm.utils.fnBind( this._onEventFromChild, this ) );
+	this._boundOnEventFromChild = lm.utils.fnBind( this._onEventFromChild, this );
+	$(window).on( 'gl_child_event', this._boundOnEventFromChild );
 };
 
 /**
@@ -4532,6 +4704,18 @@ lm.utils.EventHub.prototype._propagateToChildren = function( args ) {
 			childGl.eventHub._$onEventFromParent( args );
 		}
 	}
+};
+
+
+/**
+ * Destroys the EventHub
+ *
+ * @public
+ * @returns {void}
+ */
+
+lm.utils.EventHub.prototype.destroy = function() {
+	$(window).off( 'gl_child_event', this._boundOnEventFromChild );
 };
 /**
  * A specialised GoldenLayout component that binds GoldenLayout container
